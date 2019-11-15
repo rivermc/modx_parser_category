@@ -5,22 +5,24 @@ error_reporting(E_ALL);
  Parsing Catalog MODX
 ___________________________________________
  * args_prefix:
-        html_ - prefix for simple html
-        modx_ - prefix for modx
-        prs_  - prefix for parser
-        page_ - prefix for page
+    html_ - prefix for simple html
+    modx_ - prefix for modx
+    prs_  - prefix for parser
+    page_ - prefix for page
 ___________________________________________
 */
+
+
 
 /*
  Include php files
 ___________________________________________
 
  * Variable - Definition variable and init MODX
-        $CSV - Array
-        $BASEURL - String - Domain name
-        $URL - String - Parse link
-        $MODX - Object - Modx Object
+    $CSV - Array
+    $BASEURL - String - Domain name
+    $URL - String - Parse link
+    $MODX - Object - Modx Object
  * Simple HTML DOM - Including lib
 ___________________________________________
 */
@@ -34,16 +36,19 @@ include_once(dirname(__FILE__) . '/simple_html_dom.php');
 ___________________________________________
 
  * args:
-        $URL - String - Web page link
-        $action - String - The Action for handler function
-        $options - Array - Array data for function handler
+    $URL - String - Web page link
+    $action - String - The Action for handler function
+    $options - Array - Array data for action function handler
+        * for ParsingBrands
             0: $html_parent - String - Selector for parent html block
             1: $html_items - String - Selector for items in html block
             2: $modx_parent - Number - ID parent category for item
             3: $prs_level - Number - Level menu
+        * for getContent
+            0: $content_type - String - Type of content // Brands, Catalog
  * action:
-        Parsing - Start parsing Brands catalog
-        getContentBrands - Parsing Content menu level 1
+    ParsingBrands - Start parsing Brands catalog
+    getContent - Parsing Content Page
 ___________________________________________
 */
 function getPage($URL, $action, $options = array()) {
@@ -72,8 +77,9 @@ function getPage($URL, $action, $options = array()) {
                 parseData($html_parent, $html_items, $modx_parent, $prs_index, $prs_level);
             }
         }
-        else if ($action == 'getContentBrands') {
-            return parseContentBrands($html);
+        else if ($action == 'getContent') {
+            $content_type = $options[0];
+            return parseContent($html, $content_type);
         }
         clear($html);
     }
@@ -81,19 +87,20 @@ function getPage($URL, $action, $options = array()) {
 
 
 /*
- * The function for parsing web page
+ The function for parsing web page
 ___________________________________________
 
- ** args:
-        $html_parent - String - Selector for parent html block
-        $html_items - Array - The Action for handler function
-        $modx_parent - Number - ID parent category for item
-        $prs_index - Array - Array indexes for parse levels of menu
-        $prs_level - Number - Level menu
+ * args:
+    $html_parent - String - Selector for parent html block
+    $html_items - Array - The Action for handler function
+    $modx_parent - Number - ID parent category for item
+    $prs_index - Array - Array indexes for parse levels of menu
+    $prs_level - Number - Level menu
 ___________________________________________
 */
 function parseData($html_parent, $html_items, $modx_parent, $prs_index, $prs_level) {
     global $BASEURL;
+    global $COUNT;
 
    	foreach($html_items as $html_item) {
         // Parse data
@@ -107,14 +114,14 @@ function parseData($html_parent, $html_items, $modx_parent, $prs_index, $prs_lev
         $modx_content = '';
         $modx_img_link = '';
         $page_link = $modx_href[0] == '/' ? $BASEURL . $modx_href : $BASEURL . '/' . $modx_href;
+        $content_type = $prs_level == 1 ? 'Brands' : 'Catalog';
 
-        // Get content page level 1
-        if ($prs_level == 1) {
-            $page_content = getPage($page_link, 'getContentBrands');
-            $modx_longtitle = $page_content[0];
-            $modx_content = $page_content[1];
-            $modx_img_link = $page_content[2];
-        }
+
+        // Get content
+        $page_data = getPage($page_link, 'getContent', array($content_type));
+        $modx_longtitle = $page_data[0];
+        $modx_content = $page_data[1];
+        $modx_img_link = $page_data[2];
 
         // Modx item data
    	    $modx_item_data = array(
@@ -158,17 +165,21 @@ function parseData($html_parent, $html_items, $modx_parent, $prs_index, $prs_lev
         else {
             getPage($page_link, 'ParsingBrands', array('.cats_div', '.cats_cat .product-type__desc', $modx_item_id, $prs_level + 1));
         }
+
+
+        echo $COUNT . ', ';
+   	    $COUNT++;
     }
 }
 
 
 /*
- * The function for get ID item in modx
+ The function for get ID item in modx
 ___________________________________________
 
- ** args:
-        $modx_parent - Number - ID parent item
-        $modx_pagetitle - String - Item pagetitle
+ * args:
+    $modx_parent - Number - ID parent item
+    $modx_pagetitle - String - Item pagetitle
 ___________________________________________
 */
 function getID($modx_parent, $modx_pagetitle) {
@@ -207,17 +218,27 @@ ___________________________________________
     $html - Array - Array simple dom html
 ___________________________________________
 */
-function parseContentBrands($html) {
+function parseContent($html, $content_type) {
     $page_longtitle = $html->find('h1', 0)->plaintext;
-    $page_content = $html->find('.brand_face_content', 0)->innertext;
-    $page_content_bottom = $html->find('.brand_bottomText', 0)->innertext;
+    $page_content = '';
+    $page_img_src = '';
 
-	$page_img_src = $html->find('.brand_face_image img', 0)->src;
-    saveImage($page_img_src);
+    if ($content_type == 'Brands') {
+        $page_content = $html->find('.brand_face_content', 0)->innertext;
+        $page_content = $page_content . $html->find('.brand_bottomText', 0)->innertext;
+	    $page_img_src = $html->find('.brand_face_image img', 0)->src;
+        saveImage($page_img_src);
+    }
+    else if ($content_type == 'Catalog') {
+        $page_contents = $html->find('.content_block');
+	    foreach($page_contents as $content) {
+	        $page_content = $page_content . $content->innertext;
+	    }
+    }
 
-    $page_content = array($page_longtitle, $page_content . $page_content_bottom, $page_img_link);
+    $page_data = array($page_longtitle, $page_content, $page_img_src);
     clear($html);
-    return $page_content;
+    return $page_data;
 }
 
 
