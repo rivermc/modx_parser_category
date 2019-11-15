@@ -1,7 +1,7 @@
 <?php
 error_reporting(E_ALL);
-include_once('/var/www/html/base/variable.php');
-include_once('/var/www/html/base/simple_html_dom.php');
+include_once('/var/www/html/base_parser/variable.php');
+include_once('/var/www/html/base_parser/simple_html_dom.php');
 
 // init modx
 define('MODX_API_MODE', true);
@@ -17,10 +17,10 @@ $modx->getService('error','error.modError');
 $modx->lexicon->load('minishop2:default');
 $modx->lexicon->load('minishop2:manager');
 
-
 $CSV = array();
 
-function getPage($URL, &$CSV, &$modx) {
+
+function getPage($URL, $BASEURL, &$CSV, &$modx, $action, $options = array()) {
 	$context = stream_context_create(
 	    [
 	        'http' => [
@@ -34,22 +34,40 @@ function getPage($URL, &$CSV, &$modx) {
 	    ]
 	);
 	$html = file_get_html(str_replace(PHP_EOL, '', $URL), false, $context); // Create DOM from URL
-	$menu = $html->find('ul#aside-nav-brands', 0);
-	parseData($modx, $CSV, $menu, 1366, 0, 0, 0, $menu->find('.level1 > span > a'), 1);
+
+	if ($html && is_object($html) && isset($html->nodes)) {
+
+        if ($action == 'import') {
+            $menu = $html->find('ul#aside-nav-brands', 0);
+            if ($menu && is_object($menu) && isset($menu->nodes)) {
+                $index = array(0,0,0);
+                $parent = 1366;
+                parseData($modx, $CSV, $BASEURL, $menu, $parent, $index, $menu->find('.level1 > span > a'), 1);
+            }
+
+        }
+        else if ($action == 'getContentBrands') {
+            return parseContentBrands($modx, $CSV, $BASEURL, $html);
+        }
+        else if ($action == 'getPageLevel') {
+            $menu = $html->find('.cats_div', 0);
+            if ($menu && is_object($menu) && isset($menu->nodes)) {
+                $index = array(0,0,0);
+                parseData($modx, $CSV, $BASEURL, $menu, $options[0], $index, $menu->find('.cats_cat .product-type__desc'), $options[1]);
+            }
+        }
+        else {
+            echo 'GetPage: Missing $action';
+        }
+
+        clear($html);
+    }
 }
 
 
-
-function parseData(&$modx, &$CSV, $menu, $parent, $index, $index_two, $index_three, $dom_links, $level) {
+function parseData(&$modx, &$CSV, &$BASEURL, $menu, $parent, $index, $dom_links, $level) {
 
    	foreach($dom_links as $a) {
-		echo '<br>' .' Level: ' . $level . '<br>' .' Index: ' . $index . '<br>' .' Index_Two: ' . $index_two . '<br>' . ' Index_Three: ' . $index_three . '<br>'.' Index_Three: ' . $index_three . '<br>';
-
-		if ($menu == null) {
-		    echo 'Null';
-		    return;
-		}
-
    		$dom_class_key = 'msCategory';
         $dom_pagetitle = $a->plaintext;
    		$dom_parent = $parent;
@@ -58,40 +76,44 @@ function parseData(&$modx, &$CSV, $menu, $parent, $index, $index_two, $index_thr
         $dom_href = $a->href;
         $dom_alias = basename($dom_href);
 
+        if ($level == 1) {
+            $page_link = $BASEURL . $dom_href;
+            $page_content = getPage($page_link, $BASEURL, $CSV, $modx, 'getContentBrands');
+            $dom_longtitle = $page_content[0];
+            $dom_content = $page_content[1];
+            $dom_img_link = $page_content[2];
+        }
+        else {
+            $dom_longtitle = '';
+            $dom_content = '';
+            $dom_img_link = '';
+        }
 
-		importItem($modx, $dom_parent, $dom_pagetitle, $dom_template, $dom_published);
+		importItem($modx, $dom_parent, $dom_pagetitle, $dom_template, $dom_published, $dom_longtitle, $dom_content, $dom_img_link);
 		$dom_id = getID($modx, $dom_parent, $dom_pagetitle);
 
-		addData($CSV, $dom_class_key);
-		addData($CSV, $dom_pagetitle);
-		addData($CSV, $dom_parent);
-		addData($CSV, $dom_template);
-		addData($CSV, $dom_published);
-		addData($CSV, $dom_alias);
-		addData($CSV, $dom_id);
-		addCSV($CSV);
-
-		echo $dom_pagetitle;
-
-		echo '<br>' . '--------------------------------------------------------------------' .'<br>';
-
 		if ($level == 1) {
-			parseData($modx, $CSV, $menu, $dom_id, $index, 0, 0, $menu->find('.level1', $index)->find('ul > .level2 > span > a'), 2);
+			parseData($modx, $CSV, $BASEURL, $menu, $dom_id, $index, $menu->find('.level1', $index[0])->find('ul > .level2 > span > a'), 2);
 		}
 		else if ($level == 2) {
-			parseData($modx, $CSV, $menu, $dom_id, $index, $index_two, $index_three, $menu->find('.level1', $index)->find('ul > .level2', $index_two)->find('ul > .level3 > span > a'), 3);
+			parseData($modx, $CSV, $BASEURL, $menu, $dom_id, $index, $menu->find('.level1', $index[0])->find('ul > .level2', $index[1])->find('ul > .level3 > span > a'), 3);
+		}
+		else if ($level == 3 || $level == 4) {
+            $page_link = $BASEURL . $dom_href;
+		    if ($level == 4) {
+                $page_link = $BASEURL . '/' . $dom_href;
+		    }
+            $page_options = array($dom_id, $level + 1);
+		    getPage($page_link, $BASEURL, $CSV, $modx, 'getPageLevel', $page_options);
 		}
 
 		if ($level == 1) {
-			$index++;
+			$index[0] += 1;
 		}
 		else if ($level == 2) {
-		    $index_two++;
+			$index[1] += 1;
 		}
-		else if ($level == 3) {
-			$index_three++;
-		}
-   }
+    }
 }
 
 
@@ -108,16 +130,47 @@ function getID(&$modx, $parent, $pagetitle) {
     return $dom_id;
 }
 
-function importItem(&$modx, $dom_parent, $dom_pagetitle, $dom_template, $dom_published) {
+
+function importItem(&$modx, $dom_parent, $dom_pagetitle, $dom_template, $dom_published, $dom_longtitle, $dom_content, $dom_img_link) {
 	$data = array(
 	    'class_key' => 'msCategory',
 	    'parent' => $dom_parent,
 	    'pagetitle' => $dom_pagetitle,
+	    'longtitle' => $dom_longtitle,
+	    'content' => $dom_content,
+	    'tv34' => $dom_img_link,
 	    'template' => $dom_template,
 	    'published' => $dom_published,
 	    'context_key' => 'web',
 	);
 	$modx->runProcessor('resource/create', $data);
+}
+
+
+function parseContentBrands(&$modx, &$CSV, &$BASEURL, $html) {
+    $dom_page = array();
+    $dom_longtitle = $html->find('h1', 0)->plaintext;
+    $dom_content = $html->find('.brand_face_content', 0)->innertext;
+    $dom_content_bottom = $html->find('.brand_bottomText', 0)->innertext;
+
+	$dom_img_src = $html->find('.brand_face_image img', 0)->src;
+    $dom_img_name = substr($dom_img_src, strripos($dom_img_src, '/'));
+    $dom_img_link = '/assets/template/images/catalog/logo'. $img_name;
+
+    array_push($dom_page, $dom_longtitle);
+    array_push($dom_page, $dom_content . ' ' . $dom_content_bottom);
+    array_push($dom_page, $dom_img_link);
+    return $dom_page;
+}
+
+
+function saveImage(&$BASEURL, $img_src, $img_name) {
+	$filename = '/var/www/html/base_parser/images/catalog/logo'. $img_name;
+	if (!file_exists($filename)) {
+		file_put_contents($filename, file_get_contents($BASEURL .'/'. $img_src));
+	} else {
+	    echo "The file exists" . $filename . "\n";
+	}
 }
 
 
@@ -131,16 +184,17 @@ function addData(&$CSV, $data_item) {
 	array_push($CSV, $data_item);
 }
 
+
 function addCSV(&$CSV) {
 	$string = implode(';', $CSV);
-	$file = '/var/www/html/base/bases.csv';
+	$file = '/var/www/html/base_parser/bases.csv';
 	file_put_contents($file, trim($string).PHP_EOL, FILE_APPEND);
 	$CSV = array();
 }
 
 
 // Start Parse
-getPage($URL, $CSV, $modx);
+getPage($URL, $BASEURL, $CSV, $modx, 'import');
 
 
 
