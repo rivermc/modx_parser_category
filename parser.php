@@ -5,10 +5,10 @@ error_reporting(E_ALL);
  Parsing Catalog MODX
 ___________________________________________
  * args_prefix:
-    html_ - prefix for simple html
-    modx_ - prefix for modx
-    prs_  - prefix for parser
-    page_ - prefix for page
+    html_ - prefix for simple html variable
+    modx_ - prefix for modx variable
+    prs_  - prefix for parser variable
+    page_ - prefix for page variable
 ___________________________________________
 */
 
@@ -30,6 +30,31 @@ include_once(dirname(__FILE__) . '/variable.php');
 include_once(dirname(__FILE__) . '/simple_html_dom.php');
 
 
+/*
+ The function returning Simple DOM HTML Object
+___________________________________________
+
+ * args:
+    $URL - String - Web page link
+___________________________________________
+*/
+function getSimpleHTML($URL) {
+	$context = stream_context_create (
+	    [
+	        'http' => [
+	             'method' => 'GET',
+	             'protocol_version' => '1.1',
+	             'header' => [
+				       'User-Agent: Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:24.0) Gecko/20100101 Firefox/24.0',
+				       'Connection: close'
+	             ]
+	        ]
+	    ]
+	);
+    $html = file_get_html(str_replace(PHP_EOL, '', $URL), false, $context);
+    return $html;
+}
+
 
 /*
  The function retrieves the content of the web page and calls the handler function
@@ -44,28 +69,12 @@ ___________________________________________
             1: $html_items - String - Selector for items in html block
             2: $modx_parent - Number - ID parent category for item
             3: $prs_level - Number - Level menu
-        * for getContent
-            0: $content_type - String - Type of content // Brands, Catalog
  * action:
     ParsingBrands - Start parsing Brands catalog
-    getContent - Parsing Content Page
 ___________________________________________
 */
 function getPage($URL, $action, $options = array()) {
-	$context = stream_context_create (
-	    [
-	        'http' => [
-	             'method' => 'GET',
-	             'protocol_version' => '1.1',
-	             'header' => [
-				       'User-Agent: Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:24.0) Gecko/20100101 Firefox/24.0',
-				       'Connection: close'
-	             ]
-	        ]
-	    ]
-	);
-
-    $html = file_get_html(str_replace(PHP_EOL, '', $URL), false, $context);
+    $html = getSimpleHTML($URL);
 	if ($html && is_object($html) && isset($html->nodes)) {
         if ($action == 'ParsingBrands') {
             $html_parent = $html->find($options[0], 0);
@@ -77,12 +86,8 @@ function getPage($URL, $action, $options = array()) {
                 parseData($html_parent, $html_items, $modx_parent, $prs_index, $prs_level);
             }
         }
-        else if ($action == 'getContent') {
-            $content_type = $options[0];
-            return parseContent($html, $content_type);
-        }
-        clear($html);
     }
+    clear($html);
 }
 
 
@@ -100,7 +105,6 @@ ___________________________________________
 */
 function parseData($html_parent, $html_items, $modx_parent, $prs_index, $prs_level) {
     global $BASEURL;
-    global $COUNT;
 
    	foreach($html_items as $html_item) {
         // Parse data
@@ -110,15 +114,11 @@ function parseData($html_parent, $html_items, $modx_parent, $prs_index, $prs_lev
    		$modx_published = 1;
         $modx_href = $html_item->href;
         $modx_alias = basename($modx_href);
-        $modx_longtitle = '';
-        $modx_content = '';
-        $modx_img_link = '';
         $page_link = $modx_href[0] == '/' ? $BASEURL . $modx_href : $BASEURL . '/' . $modx_href;
         $content_type = $prs_level == 1 ? 'Brands' : 'Catalog';
 
-
         // Get content
-        $page_data = getPage($page_link, 'getContent', array($content_type));
+        $page_data = parseContent($page_link, $content_type);
         $modx_longtitle = $page_data[0];
         $modx_content = $page_data[1];
         $modx_img_link = $page_data[2];
@@ -144,6 +144,7 @@ function parseData($html_parent, $html_items, $modx_parent, $prs_index, $prs_lev
 
         // Deeper level parsing
         if ($prs_level <= 2) {
+
             // Set parser variable
             if ($prs_level == 1) {
                 $html_items = $html_parent->find('.level1', $prs_index[0])->find('ul > .level2 > span > a');
@@ -153,7 +154,10 @@ function parseData($html_parent, $html_items, $modx_parent, $prs_index, $prs_lev
                 $html_items = $html_parent->find('.level1', $prs_index[0])->find('ul > .level2', $prs_index[1])->find('ul > .level3 > span > a');
                 $prs_level = 3;
             }
+
+            // Parsing down level
             parseData($html_parent, $html_items, $modx_item_id, $prs_index, $prs_level);
+
             // Set indexes parsing
             if ($prs_level == 1) {
                 $prs_index[0] += 1;
@@ -165,10 +169,6 @@ function parseData($html_parent, $html_items, $modx_parent, $prs_index, $prs_lev
         else {
             getPage($page_link, 'ParsingBrands', array('.cats_div', '.cats_cat .product-type__desc', $modx_item_id, $prs_level + 1));
         }
-
-
-        echo $COUNT . ', ';
-   	    $COUNT++;
     }
 }
 
@@ -218,26 +218,29 @@ ___________________________________________
     $html - Array - Array simple dom html
 ___________________________________________
 */
-function parseContent($html, $content_type) {
-    $page_longtitle = $html->find('h1', 0)->plaintext;
-    $page_content = '';
-    $page_img_src = '';
+function parseContent($page_link, $content_type) {
+    $html = getSimpleHTML($page_link);
+    $page_data = array('','','');
+    if ($html && is_object($html) && isset($html->nodes)) {
+        $page_longtitle = $html->find('h1', 0)->plaintext;
+        $page_content = '';
+        $page_img_src = '';
 
-    if ($content_type == 'Brands') {
-        $page_content = $html->find('.brand_face_content', 0)->innertext;
-        $page_content = $page_content . $html->find('.brand_bottomText', 0)->innertext;
-	    $page_img_src = $html->find('.brand_face_image img', 0)->src;
-        saveImage($page_img_src);
+        if ($content_type == 'Brands') {
+            $page_content = $html->find('.brand_face_content', 0)->innertext;
+            $page_content = $page_content . $html->find('.brand_bottomText', 0)->innertext;
+            $page_img_src = $html->find('.brand_face_image img', 0)->src;
+            saveImage($page_img_src);
+        }
+        else if ($content_type == 'Catalog') {
+            $page_contents = $html->find('.content_block');
+            foreach($page_contents as $content) {
+                $page_content = $page_content . $content->innertext;
+            }
+        }
+        $page_data = array($page_longtitle, $page_content, $page_img_src);
+        clear($html);
     }
-    else if ($content_type == 'Catalog') {
-        $page_contents = $html->find('.content_block');
-	    foreach($page_contents as $content) {
-	        $page_content = $page_content . $content->innertext;
-	    }
-    }
-
-    $page_data = array($page_longtitle, $page_content, $page_img_src);
-    clear($html);
     return $page_data;
 }
 
@@ -272,7 +275,9 @@ ___________________________________________
 ___________________________________________
 */
 function clear($html) {
-	$html->clear();
+    if (is_bool($html) !== true) {
+	    $html->clear();
+    }
 	unset($html);
 }
 
