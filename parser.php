@@ -78,7 +78,7 @@ function getPage($URL, $action, $options = array()) {
 	if ($html && is_object($html) && isset($html->nodes)) {
         if ($action == 'ParsingBrands') {
             $html_parent = $html->find($options[0], 0);
-            if ($html_parent && is_object($html_parent) && isset($html_parent->nodes)) {            
+            if ($html_parent && is_object($html_parent) && isset($html_parent->nodes)) {
                 $html_items = $html_parent->find($options[1]);
                 $modx_parent = $options[2];
                 $prs_level = $options[3];
@@ -137,10 +137,7 @@ function parseData($html_parent, $html_items, $modx_parent, $prs_index, $prs_lev
    	    );
 
    	    // Import a item in modx
-		importItem($modx_item_data);
-
-   	    // Get a id item in modx
-		$modx_item_id = getID($modx_parent, $modx_pagetitle);
+		$modx_item_id = importItem($modx_item_data);
 
         // Deeper level parsing
         if ($prs_level <= 2) {
@@ -174,29 +171,6 @@ function parseData($html_parent, $html_items, $modx_parent, $prs_index, $prs_lev
 
 
 /*
- The function for get ID item in modx
-___________________________________________
-
- * args:
-    $modx_parent - Number - ID parent item
-    $modx_pagetitle - String - Item pagetitle
-___________________________________________
-*/
-function getID($modx_parent, $modx_pagetitle) {
-    global $MODX;
-	$where = $MODX->toJSON(array('pagetitle' => $modx_pagetitle));
-	$modx_item_id = $MODX->runSnippet('pdoResources', array(
-       'parents' =>  $modx_parent,
-       'depth' => 0,
-	   'limit' => 1,
-       'tpl' => '@INLINE [[+id]]',
-       'where' => $where
-    ));
-    return $modx_item_id;
-}
-
-
-/*
  The function for importing item in modx
 ___________________________________________
 
@@ -206,7 +180,9 @@ ___________________________________________
 */
 function importItem($modx_item_data) {
     global $MODX;
-	$MODX->runProcessor('resource/create', $modx_item_data);
+	$response = $MODX->runProcessor('resource/create', $modx_item_data);
+	$item_id = $response->getObject()['id'];
+	return $item_id;
 }
 
 
@@ -292,7 +268,14 @@ ___________________________________________
 */
 function addCsv($data_item) {
     global $CSV;
-	array_push($CSV, $data_item);
+    if (is_array($data_item) === true) {
+        foreach($data_item as $item) {
+            array_push($CSV, $item);
+        }
+    }
+    else {
+	    array_push($CSV, $data_item);
+    }
 }
 
 
@@ -304,10 +287,10 @@ ___________________________________________
     $data_item - String, Number - Item property
 ___________________________________________
 */
-function pushCsv() {
+function pushCsv($filename) {
     global $CSV;
 	$string = implode(';', $CSV);
-	$file = dirname(__FILE__) .'/bases.csv';
+	$file = dirname(__FILE__) .'/' . $filename;
 	file_put_contents($file, trim($string).PHP_EOL, FILE_APPEND);
 	$CSV = array();
 }
