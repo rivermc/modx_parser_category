@@ -103,13 +103,18 @@ ___________________________________________
 function parseData($html_items, $modx_parent, $prs_level) {
     global $BASEURL;
     global $MODX;
-    $index = 0;
     $prs_level++;
    	foreach($html_items as $html_item) {
         // Parse data
+   		if (strripos($html_item, 'nav-menu_count') > 0) {
+   		    $modx_pagetitle = $html_item->innertext;
+   		    $modx_pagetitle = trim(preg_replace("/<span.*?>.*?<\/span>/", "", $modx_pagetitle));
+   		}
+   		else {
+   		    $modx_pagetitle = trim($html_item->plaintext);
+   		}
+
    		$modx_class_key = 'msCategory';
-        $modx_pagetitle = $html_item->innertext;
-        $modx_pagetitle = trim(preg_replace("/<span.*?>.*?<\/span>/", "", $modx_pagetitle));
    		$modx_template = 5;
    		$modx_published = 1;
         $modx_href = $html_item->href;
@@ -118,7 +123,17 @@ function parseData($html_items, $modx_parent, $prs_level) {
         $content_type = $prs_level == 1 ? 'Brands' : 'Catalog';
 
    	    // Duplicate check
-        $item_id = getID($modx_parent, $modx_pagetitle);
+   	    $q = $MODX->newQuery($modx_class_key);
+   	    $q->select($modx_class_key .'.id');
+   	    $q->where(array(
+   	        'pagetitle' => $modx_pagetitle,
+   	        'parent' => $modx_parent
+   	        )
+   	    );
+   	    if ($exists = $MODX->getObject($modx_class_key, $q)) {
+   	        $item_id = $exists->id;
+   	    }
+
         if ($item_id) {
             echo 'Skip category: '. $item_id .' '. $modx_pagetitle . PHP_EOL;
             //$action = 'update';
@@ -161,36 +176,8 @@ function parseData($html_items, $modx_parent, $prs_level) {
 
             addCsv(array($page_link, $html_items, $modx_item_id, $prs_level));
             pushCsv($prs_level . '_catalog.csv');
-
-            // Set indexes parsing
-            $index += 1;
         }
     }
-}
-
-
-
-
-/*
- The function for get ID item in modx
-___________________________________________
-
- * args:
-    $modx_parent - Number - ID parent item
-    $modx_pagetitle - String - Item pagetitle
-___________________________________________
-*/
-function getID($modx_parent, $modx_pagetitle) {
-    global $MODX;
-	$where = $MODX->toJSON(array('pagetitle' => $modx_pagetitle));
-	$modx_item_id = $MODX->runSnippet('pdoResources', array(
-       'parents' =>  $modx_parent,
-       'depth' => 0,
-	   'limit' => 1,
-       'tpl' => '@INLINE [[+id]]',
-       'where' => $where
-    ));
-    return $modx_item_id;
 }
 
 
